@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Earthquake and Tsunami Viewer</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        #map { height: 500px; width: 100%; }
+        #info { margin-top: 20px; }
+        #alerts { color: red; }
+    </style>
+    <script>
+        // WebSocket setup
+        const ws = new WebSocket('wss://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson');
+
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            updateEarthquakeData(data);
+        };
+
+        function updateEarthquakeData(data) {
+            // Implement logic for updating the visualization with new data
+            console.log("Earthquake data received:", data);
+            // This is where the real-time data processing and visualization will go.
+        }
+
+        function initializeMap() {
+            // Initialize map for visualization
+            const map = new google.maps.Map(document.getElementById('map'), {
+                zoom: 2,
+                center: { lat: 0, lng: 0 }
+            });
+            // Further integration with earthquake data visualization can be added here
+        }
+    </script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initializeMap" async defer></script>
+</head>
+<body>
+    <h1>Real-Time Earthquake and Tsunami Viewer</h1>
+    <div id="map"></div>
+    <div id="info">
+        <h2>Latest Alerts</h2>
+        <div id="alerts">No alerts at this time.</div>
+    </div>
+</body>
+</html>
