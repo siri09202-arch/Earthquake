@@ -554,37 +554,72 @@
                 }
             }
             else if (format === 'twitter') {
-                resultText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
+                let headText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
                 if (isForeign) {
-                    resultText += `${mm}/${dd} ${hh}:${min}ごろ、海外で規模の大きな地震がありました。\n`;
+                    headText += `${mm}/${dd} ${hh}:${min}ごろ、海外で規模の大きな地震がありました。\n`;
                 } else {
-                    resultText += `${mm}/${dd} ${hh}:${min}ごろ、最大震度${maxScaleStr}の地震がありました。\n`;
+                    headText += `${mm}/${dd} ${hh}:${min}ごろ、最大震度${maxScaleStr}の地震がありました。\n`;
                 }
-                resultText += `震源: ${hypoName} (M${magnitude} / 深さ${depth})\n`;
+                headText += `震源: ${hypoName} (M${magnitude} / 深さ${depth})\n`;
                 
                 if (eq.earthquake.domesticTsunami === "None") {
-                    resultText += `日本の沿岸では津波の心配はありません。\n`;
+                    headText += `日本の沿岸では津波の心配はありません。\n`;
                 } else {
-                    resultText += `⚠️${tsunamiText}\n`;
+                    headText += `⚠️${tsunamiText}\n`;
                 }
                 
+                const hashTags = `\n#地震 #地震情報`;
+                
+                let bodyText = "";
                 if (!isForeign) {
                     if (targetPoints.length === 0) {
-                        resultText += `\n(震度3以上の観測データはありません)\n`;
+                        bodyText = `\n(震度3以上の観測データはありません)\n`;
                     } else {
-                        resultText += `\n■ 各地の震度\n`;
+                        bodyText = `\n■ 各地の震度\n`;
                         sortedScales.forEach(scale => {
                             const scaleStr = scaleMap[scale] ? scaleMap[scale].label : scale;
-                            resultText += `［震度${scaleStr}］\n`;
+                            bodyText += `［震度${scaleStr}］\n`;
                             const prefsObj = groupedByScale[scale];
                             Object.keys(prefsObj).forEach(pref => {
                                 const addrs = Array.from(prefsObj[pref]).join('、');
-                                resultText += `${pref}: ${addrs}\n`;
+                                bodyText += `${pref}: ${addrs}\n`;
                             });
                         });
                     }
                 }
-                resultText += `\n#地震 #地震情報\n`;
+
+                // Twitterの文字数カウント（全角1文字、半角0.5文字として計算）
+                const getTwLen = (str) => {
+                    let len = 0;
+                    for (let i = 0; i < str.length; i++) {
+                        len += str.charCodeAt(i) > 255 ? 1 : 0.5;
+                    }
+                    return len;
+                };
+
+                let fullText = headText + bodyText + hashTags;
+                if (getTwLen(fullText) <= 139) { // 安全マージンを取って139文字以下か判定
+                    resultText = fullText + "\n";
+                } else {
+                    // 140文字を超える場合は各地の震度情報を削って "...他" を付与
+                    const limit = 139 - getTwLen(headText) - getTwLen("…他\n" + hashTags);
+                    let truncatedBody = "";
+                    let currentLen = 0;
+                    
+                    for (let i = 0; i < bodyText.length; i++) {
+                        const char = bodyText[i];
+                        const charLen = char.charCodeAt(0) > 255 ? 1 : 0.5;
+                        if (currentLen + charLen > limit) {
+                            break;
+                        }
+                        truncatedBody += char;
+                        currentLen += charLen;
+                    }
+                    
+                    // 末尾の中途半端な区切り文字や改行を取り除く
+                    truncatedBody = truncatedBody.replace(/[\n、：:\s]+$/, "");
+                    resultText = headText + truncatedBody + "…他\n" + hashTags + "\n";
+                }
             }
             else if (format === 'simple') {
                 resultText = isForeign ? `【海外地震発生】${mm}/${dd} ${hh}:${min}\n` : `【地震発生】${mm}/${dd} ${hh}:${min}\n`;
