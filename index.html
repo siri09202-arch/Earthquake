@@ -106,9 +106,9 @@
         <div class="w-full md:w-2/3 flex flex-col h-2/3 md:h-full bg-gray-50 relative">
             
             <div class="p-4 bg-white border-b border-gray-200 flex flex-wrap justify-between items-center shadow-sm z-10 gap-3">
-                <div class="flex flex-col gap-2 w-full md:w-auto">
-                    <div class="flex items-center gap-2">
-                        <h2 class="font-bold text-gray-700 hidden md:block">生成テキスト</h2>
+                <div class="flex flex-col md:flex-row md:items-center gap-3">
+                    <h2 class="font-bold text-gray-700 hidden md:block">生成テキスト</h2>
+                    <div class="flex flex-col gap-1">
                         <select id="format-select" onchange="updateText()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-700 cursor-pointer hover:bg-gray-100 transition-colors">
                             <optgroup label="標準・SNS">
                                 <option value="standard">標準フォーマット</option>
@@ -116,7 +116,6 @@
                                 <option value="twitter">X (Twitter)用</option>
                                 <option value="line">LINE用</option>
                                 <option value="insta">Instagram用</option>
-                                <option value="youtube">YouTube用</option>
                             </optgroup>
                             <optgroup label="ニュース・公式風">
                                 <option value="nhk">NHKニュース風</option>
@@ -126,26 +125,21 @@
                                 <option value="tenkijp">tenki.jp風</option>
                             </optgroup>
                             <optgroup label="防災アプリ・Bot風">
-                                <option value="j_risq">J-RISQ風</option>
-                                <option value="yahoo_bousai">Yahoo!防災速報風</option>
                                 <option value="p2p">P2P地震情報風</option>
                                 <option value="nerv">特務機関NERV風</option>
-                                <option value="jquake">JQuake風</option>
                                 <option value="eqmonitor">EQMonitor風</option>
-                                <option value="earthquickly">EarthQuickly風</option>
-                                <option value="dpibot">DPI-Bot風</option>
                             </optgroup>
                             <optgroup label="その他">
                                 <option value="simple">簡易フォーマット</option>
                                 <option value="detail">詳細フォーマット</option>
                             </optgroup>
                         </select>
+                        <!-- 観測点トグルチェックボックス -->
+                        <label class="flex items-center gap-2 text-xs font-medium text-gray-600 cursor-pointer bg-white px-2 py-1 rounded border border-gray-200 hover:bg-gray-50 w-max">
+                            <input type="checkbox" id="raw-points-check" onchange="updateText()" class="rounded text-blue-600 w-3 h-3">
+                            観測点（詳細な地点情報）で出力する
+                        </label>
                     </div>
-                    <!-- 観測点トグルチェックボックス -->
-                    <label class="flex items-center gap-2 text-xs md:text-sm font-medium text-gray-600 cursor-pointer bg-white px-2 py-1 rounded border border-gray-200 hover:bg-gray-50 w-max">
-                        <input type="checkbox" id="raw-points-check" onchange="updateText()" class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4">
-                        観測点（詳細な地点情報）で出力する
-                    </label>
                 </div>
                 <button id="copy-btn" onclick="copyToClipboard()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-bold shadow transition-colors flex items-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
                     <i class="fa-regular fa-copy"></i>
@@ -303,12 +297,6 @@
             updateText();
         }
 
-        // 震度テキスト変換ヘルパー関数
-        function getScaleLabel(scale) {
-            if (scale == 46) return '5弱以上と推定（未入電）';
-            return scaleMap[scale] ? scaleMap[scale].label : String(scale);
-        }
-
         function updateText() {
             if (currentSelectedEqIndex === -1) return;
             const eq = currentEarthquakes[currentSelectedEqIndex];
@@ -316,6 +304,12 @@
             
             document.getElementById('output-text').value = text;
             document.getElementById('copy-btn').disabled = false;
+        }
+
+        // 震度テキスト変換ヘルパー関数
+        function getScaleLabel(scale) {
+            if (scale == 46) return '5弱以上と推定（未入電）';
+            return scaleMap[scale] ? scaleMap[scale].label : String(scale);
         }
 
         function generateText(eq) {
@@ -353,9 +347,9 @@
             // 2. 震度情報の集計（震度3:30 以上および未入電:46 を抽出）
             const targetPoints = eq.points.filter(p => p.scale >= 30 || p.scale === 46);
             
-            // 市区町村以降を切り捨てるための関数（チェックがオンならスルーして観測点を返す）
+            // 市区町村以降を切り捨てるための関数
             function formatCityName(addr) {
-                if (useRawPoints) return addr; // チェックONならそのまま（詳細地点）
+                if (useRawPoints) return addr; // チェックONなら詳細な地点のまま返す
                 
                 const exceptions = [
                     "四日市市", "廿日市市", "野々市市", "八日市場市", 
@@ -373,6 +367,7 @@
                 return addr;
             }
 
+            // 【集計方法1】 スケール ＞ 都道府県
             const groupedByScale = {};
             targetPoints.forEach(p => {
                 if (!groupedByScale[p.scale]) groupedByScale[p.scale] = {};
@@ -381,6 +376,17 @@
                 groupedByScale[p.scale][p.pref].add(formattedAddr);
             });
             const sortedScales = Object.keys(groupedByScale).sort((a, b) => b - a);
+
+            // 【集計方法2】 都道府県 ＞ スケール (気象庁風・P2P風などで使用)
+            const prefOrder = []; // 地域の出現順を保持
+            const groupedByPref = {};
+            targetPoints.forEach(p => {
+                if (!prefOrder.includes(p.pref)) prefOrder.push(p.pref);
+                if (!groupedByPref[p.pref]) groupedByPref[p.pref] = {};
+                if (!groupedByPref[p.pref][p.scale]) groupedByPref[p.pref][p.scale] = new Set();
+                groupedByPref[p.pref][p.scale].add(formatCityName(p.addr));
+            });
+
 
             let resultText = "";
 
@@ -472,221 +478,220 @@
                 resultText += `詳細は公式情報をご確認ください。\n\n`;
                 resultText += `#地震 #防災 #速報\n`;
             }
-            else if (format === 'youtube') {
-                resultText = `【地震情報】\n`;
-                resultText += `発生日時: ${yyyy}年${mm}月${dd}日 ${hh}:${min}頃\n`;
-                resultText += `震源地: ${hypoName}\n`;
-                resultText += `最大震度: ${maxScaleStr}\n`;
-                resultText += `マグニチュード: M${magnitude}\n`;
-                resultText += `深さ: ${depth}\n`;
-                resultText += `津波の有無: ${tsunamiShort}\n\n`;
-                
-                if (targetPoints.length > 0) {
-                    resultText += `[各地の震度]\n`;
-                    sortedScales.forEach(scale => {
-                        const scaleStr = getScaleLabel(scale);
-                        resultText += `■震度${scaleStr}\n`;
-                        const prefsObj = groupedByScale[scale];
-                        Object.keys(prefsObj).forEach(pref => {
-                            const addrs = Array.from(prefsObj[pref]).join('、');
-                            resultText += `${pref}: ${addrs}\n`;
-                        });
-                        resultText += `\n`;
-                    });
-                }
-                resultText += `#地震 #地震速報 #Earthquake\n`;
-            }
             
             // --- ニュース・公式風 ---
             else if (format === 'nhk') {
+                const hhNum = parseInt(hh, 10);
+                const isAm = hhNum < 12;
+                const ampmStr = isAm ? "午前" : "午後";
+                const ampmHh = isAm ? hhNum : (hhNum === 12 ? 12 : hhNum - 12);
+                const magZenkaku = magnitude.toString().replace('.', '．');
+
                 resultText = `【地震情報】\n`;
-                resultText += `${dd}日${hh}時${min}分ごろ、${hypoName}を震源とする地震がありました。\n`;
-                resultText += `この地震による最大震度は${maxScaleStr}です。\n`;
-                resultText += `${tsunamiText}\n\n`;
+                resultText += `${ampmStr}${ampmHh}時${min}分ごろ地震がありました\n`;
+                resultText += `震源は${hypoName}\n`;
+                resultText += `深さ${depth.replace('km', 'キロ')}　マグニチュード${magZenkaku}\n`;
+                resultText += `緯度/経度: ${lat}/${lon}\n`;
+                
+                let nhkTsunami = "この地震による津波の心配はありません";
+                if (eq.earthquake.domesticTsunami === "Warning") nhkTsunami = "津波警報等が発表されています";
+                else if (eq.earthquake.domesticTsunami === "NonDestructive") nhkTsunami = "若干の海面変動が予想されますが、被害の心配はありません";
+                else if (eq.earthquake.domesticTsunami !== "None") nhkTsunami = "津波の影響は現在調査中です";
+                resultText += `${nhkTsunami}\n\n`;
+
                 if (targetPoints.length > 0) {
-                    resultText += `各地の震度は以下の通りです。\n\n`;
                     sortedScales.forEach(scale => {
                         const scaleStr = getScaleLabel(scale);
-                        resultText += `【震度${scaleStr}】\n`;
+                        resultText += `■震度${scaleStr}■ `;
+                        const allAddrs = [];
                         const prefsObj = groupedByScale[scale];
                         Object.keys(prefsObj).forEach(pref => {
-                            const addrs = Array.from(prefsObj[pref]).join('、');
-                            resultText += `${pref}：${addrs}\n`;
+                            allAddrs.push(...Array.from(prefsObj[pref]));
                         });
-                        resultText += `\n`;
+                        resultText += allAddrs.join('　') + `\n\n`;
                     });
+                    resultText = resultText.trimEnd() + `\n`;
                 }
             }
             else if (format === 'yahoo_weather') {
-                resultText = `【地震】${mm}/${dd} ${hh}:${min}頃発生 最大震度${maxScaleStr}\n`;
-                resultText += `震源地：${hypoName}\n`;
-                resultText += `マグニチュード：${magnitude}\n`;
-                resultText += `深さ：${depth}\n`;
-                resultText += `${tsunamiText}\n\n`;
-                if (targetPoints.length > 0) {
-                    const maxScale = Math.max(...targetPoints.map(p => p.scale));
-                    const maxScaleStrForYahoo = getScaleLabel(maxScale);
-                    resultText += `■震度${maxScaleStrForYahoo}\n`;
-                    const maxPrefs = Array.from(new Set(targetPoints.filter(p => p.scale === maxScale).map(p => p.pref)));
-                    resultText += `${maxPrefs.join(' ')}\n`;
-                }
-            }
-            else if (format === 'jma') {
-                const reiwaYear = yyyy - 2018;
-                const rStr = reiwaYear === 1 ? "元" : reiwaYear;
-                resultText = `令和${rStr}年${mm}月${dd}日${hh}時${min}分　気象庁発表\n\n`;
-                resultText += `${dd}日${hh}時${min}分ころ、地震がありました。\n`;
-                resultText += `震源地は、${hypoName}（${lat}、${lon}）で、震源の深さは約${depth}、地震の規模（マグニチュード）は${magnitude}と推定されます。\n`;
-                resultText += `${tsunamiText}\n\n`;
-                resultText += `この地震により観測された最大震度は${maxScaleStr}です。\n`;
+                resultText = `【地震情報】\n`;
+                resultText += `発生時刻: ${yyyy}年${mm}月${dd}日 ${hh}:${min}\n`;
+                resultText += `震源地: ${hypoName}\n`;
+                resultText += `マグニチュード: ${magnitude}\n`;
+                resultText += `深さ: ${depth}\n`;
+                resultText += `緯度/経度: ${lat}/${lon}\n`;
                 
+                let yTsunami = "この地震による津波の心配はありません。";
+                if (eq.earthquake.domesticTsunami === "Warning") yTsunami = "津波警報等が発表されています。";
+                else if (eq.earthquake.domesticTsunami === "NonDestructive") yTsunami = "若干の海面変動が予想されますが、被害の心配はありません。";
+                resultText += `${yTsunami}\n\n`;
+
                 if (targetPoints.length > 0) {
-                    resultText += `［震度３以上が観測された地域］\n`;
                     sortedScales.forEach(scale => {
                         const scaleStr = getScaleLabel(scale);
-                        resultText += `震度${scaleStr}　`;
-                        const pList = [];
-                        const prefsObj = groupedByScale[scale];
-                        Object.keys(prefsObj).forEach(pref => pList.push(pref));
-                        resultText += pList.join(' ') + `\n`;
-                    });
-                }
-            }
-            else if (format === 'weathernews') {
-                resultText = `【地震速報】${hypoName}で最大震度${maxScaleStr}\n\n`;
-                resultText += `${mm}月${dd}日 ${hh}:${min}頃、地震がありました。\n`;
-                resultText += `${tsunamiText}\n\n`;
-                resultText += `■発生時刻：${hh}時${min}分頃\n`;
-                resultText += `■震源地：${hypoName}\n`;
-                resultText += `■マグニチュード：${magnitude}\n`;
-                resultText += `■深さ：${depth}\n\n`;
-                
-                if (targetPoints.length > 0) {
-                    resultText += `［各地の震度］\n`;
-                    sortedScales.forEach(scale => {
-                        const scaleStr = getScaleLabel(scale);
-                        resultText += `■震度${scaleStr}\n`;
+                        resultText += `震度${scaleStr}\n`;
                         const prefsObj = groupedByScale[scale];
                         Object.keys(prefsObj).forEach(pref => {
-                            const addrs = Array.from(prefsObj[pref]).join('、');
-                            resultText += `【${pref}】${addrs}\n`;
+                            const addrs = Array.from(prefsObj[pref]).join('　');
+                            resultText += `${pref} ${addrs}\n`;
                         });
                         resultText += `\n`;
                     });
+                    resultText = resultText.trimEnd() + `\n`;
                 }
             }
-            else if (format === 'tenkijp') {
+            else if (format === 'jma') {
                 resultText = `【地震情報】\n`;
-                resultText += `${yyyy}年${mm}月${dd}日 ${hh}時${min}分頃、${hypoName}で最大震度${maxScaleStr}を観測する地震がありました。\n`;
-                resultText += `${tsunamiText}\n\n`;
-                resultText += `震源地：${hypoName}\n`;
-                resultText += `マグニチュード：${magnitude}\n`;
-                resultText += `深さ：${depth}\n\n`;
-                
+                resultText += `地震検知日時: ${yyyy}/${mm}/${dd} ${hh}:${min}\n`;
+                resultText += `緯度: ${lat}\n`;
+                resultText += `経度: ${lon}\n`;
+                resultText += `マグニチュード: ${magnitude}\n`;
+                resultText += `震源の深さ: ${depth}\n`;
+                resultText += `震央地名: ${hypoName}\n\n`;
+
                 if (targetPoints.length > 0) {
-                    resultText += `各地の震度（震度3以上）\n`;
+                    resultText += `震度3以上が観測された地域\n\n`;
+                    prefOrder.forEach(pref => {
+                        resultText += `${pref}\n`;
+                        const scalesInPref = Object.keys(groupedByPref[pref]).sort((a, b) => b - a);
+                        scalesInPref.forEach(scale => {
+                            const scaleStr = getScaleLabel(scale);
+                            const addrs = Array.from(groupedByPref[pref][scale]).join('　');
+                            resultText += `震度${scaleStr} ${addrs}\n`;
+                        });
+                        resultText += `\n`;
+                    });
+                    resultText = resultText.trimEnd() + `\n`;
+                }
+            }
+            else if (format === 'weathernews') {
+                resultText = `【地震情報】\n`;
+                resultText += `${mm}月${dd}日 ${hh}:${min}\n`;
+                resultText += `最大震度${maxScaleStr}\n`;
+                resultText += `震源地: ${hypoName}\n`;
+                resultText += `マグニチュード: ${magnitude}\n`;
+                resultText += `震源の深さ: 約${depth}\n\n`;
+
+                if (targetPoints.length > 0) {
+                    resultText += `各地の震度\n`;
                     sortedScales.forEach(scale => {
                         const scaleStr = getScaleLabel(scale);
                         resultText += `［震度${scaleStr}］\n`;
                         const prefsObj = groupedByScale[scale];
                         Object.keys(prefsObj).forEach(pref => {
-                            const addrs = Array.from(prefsObj[pref]).join('、');
-                            resultText += `${pref}：${addrs}\n`;
+                            const addrs = Array.from(prefsObj[pref]).join('　');
+                            resultText += `【${pref}】\n${addrs}\n\n`;
+                        });
+                    });
+                    resultText = resultText.trimEnd() + `\n`;
+                }
+            }
+            else if (format === 'tenkijp') {
+                resultText = `【地震情報】\n`;
+                let tTsunami = "この地震による津波の心配はありません。";
+                if (eq.earthquake.domesticTsunami === "Warning") tTsunami = "津波警報等が発表されています。";
+                else if (eq.earthquake.domesticTsunami === "NonDestructive") tTsunami = "若干の海面変動が予想されますが、被害の心配はありません。";
+                
+                resultText += `${tTsunami}\n`;
+                resultText += `発生時刻${yyyy}年${mm}月${dd}日 ${hh}時${min}分頃\n`;
+                resultText += `震源地: ${hypoName}\n`;
+                resultText += `最大震度: 震度${maxScaleStr}\n`;
+                resultText += `緯度: ${lat}\n`;
+                resultText += `経度: ${lon}\n`;
+                resultText += `マグニチュード: M${magnitude}\n`;
+                resultText += `深さ: ${depth}\n\n`;
+
+                if (targetPoints.length > 0) {
+                    sortedScales.forEach(scale => {
+                        const scaleStr = getScaleLabel(scale);
+                        resultText += `● 震度${scaleStr}\n`;
+                        const prefsObj = groupedByScale[scale];
+                        Object.keys(prefsObj).forEach(pref => {
+                            const addrs = Array.from(prefsObj[pref]).join('　');
+                            resultText += `${pref}: ${addrs}\n`;
                         });
                         resultText += `\n`;
                     });
+                    resultText = resultText.trimEnd() + `\n`;
                 }
             }
             
             // --- 防災アプリ・Bot風 ---
-            else if (format === 'j_risq') {
-                resultText = `[J-RISQ 地震速報]\n`;
-                resultText += `発生時刻: ${yyyy}/${mm}/${dd} ${hh}:${min}\n`;
-                resultText += `震央地名: ${hypoName}\n`;
-                resultText += `深さ: ${depth}\n`;
-                resultText += `M: ${magnitude}\n`;
-                resultText += `最大震度: ${maxScaleStr}\n`;
-                
-                if (targetPoints.length > 0) {
-                    resultText += `\n【観測された最大震度】\n`;
-                    const maxScale = Math.max(...targetPoints.map(p => p.scale));
-                    const maxPrefs = Array.from(new Set(targetPoints.filter(p => p.scale === maxScale).map(p => p.pref)));
-                    resultText += `震度${getScaleLabel(maxScale)}: ${maxPrefs.join(', ')}\n`;
-                }
-            }
-            else if (format === 'yahoo_bousai') {
-                resultText = `■Yahoo!防災速報\n【地震情報】\n`;
-                resultText += `${dd}日${hh}時${min}分頃、${hypoName}で最大震度${maxScaleStr}の地震が発生しました。\n`;
-                resultText += `${tsunamiText}\n`;
-            }
             else if (format === 'p2p') {
-                resultText = `[P2P地震情報]\n地震情報（各地の震度に関する情報）\n`;
-                resultText += `${dd}日${hh}時${min}分頃、地震がありました。\n`;
-                resultText += `最大震度${maxScaleStr}を観測しています。\n`;
-                resultText += `${tsunamiText}\n\n`;
-                resultText += `震源地: ${hypoName}\n`;
-                resultText += `最大震度: ${maxScaleStr}\n`;
-                resultText += `マグニチュード: ${magnitude}\n`;
-                resultText += `深さ: ${depth}\n`;
-            }
-            else if (format === 'nerv') {
                 resultText = `【地震情報】\n`;
-                resultText += `${dd}日 ${hh}:${min}頃、${hypoName}を震源とする地震がありました。\n`;
-                resultText += `最大震度は${maxScaleStr}です。\n`;
-                resultText += `${tsunamiText}\n\n`;
-                resultText += `震源地：${hypoName}\n`;
-                resultText += `深さ　：${depth}\n`;
-                resultText += `規模　：M${magnitude}\n\n`;
+                resultText += `日時　${mm}月${dd}日${hh}時${min}分頃\n`;
+                resultText += `震源　${hypoName} (深さ${depth}) M${magnitude}\n`;
                 
+                let pTsunami = "津波の心配なし";
+                if (eq.earthquake.domesticTsunami === "Warning") pTsunami = "津波予報 発表中";
+                else if (eq.earthquake.domesticTsunami === "NonDestructive") pTsunami = "海面変動あり(被害なし)";
+                else if (eq.earthquake.domesticTsunami !== "None") pTsunami = "津波の影響は調査中";
+                resultText += `津波　${pTsunami}\n\n`;
+
                 if (targetPoints.length > 0) {
-                    resultText += `■各地の震度\n`;
-                    sortedScales.forEach(scale => {
-                        const scaleStr = getScaleLabel(scale);
-                        resultText += `【震度${scaleStr}】\n`;
-                        const prefsObj = groupedByScale[scale];
-                        Object.keys(prefsObj).forEach(pref => {
-                            const addrs = Array.from(prefsObj[pref]).join('、');
-                            resultText += `［${pref}］${addrs}\n`;
+                    resultText += `各地の震度\n`;
+                    prefOrder.forEach(pref => {
+                        resultText += `${pref}\n`;
+                        const scalesInPref = Object.keys(groupedByPref[pref]).sort((a, b) => b - a);
+                        scalesInPref.forEach(scale => {
+                            const scaleStr = getScaleLabel(scale);
+                            const addrs = Array.from(groupedByPref[pref][scale]).join('、');
+                            resultText += `震度${scaleStr} ${addrs}\n`;
                         });
-                        resultText += `\n`;
                     });
                 }
             }
-            else if (format === 'jquake') {
-                resultText = `【地震情報】(JQuake)\n`;
-                resultText += `発生時刻：${dd}日${hh}時${min}分頃\n`;
-                resultText += `震源地　：${hypoName}\n`;
-                resultText += `最大震度：${maxScaleStr}\n`;
-                resultText += `深さ　　：${depth}\n`;
-                resultText += `規模　　：M${magnitude}\n`;
-                resultText += `${tsunamiShort}\n`;
+            else if (format === 'nerv') {
+                resultText = `【地震情報】\n`;
+                resultText += `最大震度${maxScaleStr}　マグニチュード${magnitude}\n`;
+                resultText += `発生時刻　${dd}日 ${hh}:${min}頃\n`;
+                resultText += `震源地　${hypoName}\n`;
+                resultText += `深さ　約${depth}\n`;
+                
+                let nervTsunami = "この地震による津波の心配はありません。";
+                if (eq.earthquake.domesticTsunami === "Warning") {
+                    nervTsunami = "津波警報等（大津波警報・津波警報あるいは津波注意報）を発表中です。"; 
+                } else if (eq.earthquake.domesticTsunami === "NonDestructive") {
+                    nervTsunami = "若干の海面変動が予想されますが、被害の心配はありません。";
+                } else if (eq.earthquake.domesticTsunami !== "None") {
+                    nervTsunami = "津波の影響は現在調査中です。";
+                }
+                resultText += `${nervTsunami}\n\n`;
+
+                if (targetPoints.length > 0) {
+                    sortedScales.forEach(scale => {
+                        const scaleStr = getScaleLabel(scale);
+                        resultText += `震度${scaleStr}\n`;
+                        const prefsObj = groupedByScale[scale];
+                        Object.keys(prefsObj).forEach(pref => {
+                            const addrs = Array.from(prefsObj[pref]).join('　');
+                            resultText += `［${pref}］\n${addrs}\n\n`;
+                        });
+                    });
+                    resultText = resultText.trimEnd() + `\n`;
+                }
             }
             else if (format === 'eqmonitor') {
-                resultText = `【地震情報】(EQMonitor)\n`;
-                resultText += `発生時刻: ${yyyy}/${mm}/${dd} ${hh}:${min}\n`;
-                resultText += `震源地: ${hypoName}\n`;
-                resultText += `深さ: ${depth}\n`;
-                resultText += `規模: M${magnitude}\n`;
-                resultText += `最大震度: ${maxScaleStr}\n`;
-                resultText += `${tsunamiText}\n`;
-            }
-            else if (format === 'earthquickly') {
-                resultText = `[EarthQuickly]\n`;
-                resultText += `🌍 地震情報 🌍\n`;
-                resultText += `🕒 ${yyyy}/${mm}/${dd} ${hh}:${min}\n`;
-                resultText += `📍 震源: ${hypoName}\n`;
-                resultText += `💥 最大震度: ${maxScaleStr}\n`;
-                resultText += `📉 深さ: ${depth}\n`;
-                resultText += `📏 規模: M${magnitude}\n`;
-                resultText += `🌊 津波: ${tsunamiShort}\n`;
-            }
-            else if (format === 'dpibot') {
-                resultText = `【DPI-Bot 地震情報】\n`;
-                resultText += `発生: ${yyyy}/${mm}/${dd} ${hh}:${min}\n`;
-                resultText += `震源: ${hypoName} (深さ${depth})\n`;
-                resultText += `規模: M${magnitude}\n`;
-                resultText += `最大震度: ${maxScaleStr}\n`;
-                resultText += `津波: ${tsunamiShort}\n`;
+                resultText = `【地震情報】\n`;
+                resultText += `最大震度${maxScaleStr}\n`;
+                resultText += `M${magnitude}\n`;
+                resultText += `深さ${depth}\n`;
+                resultText += `震源地 ${hypoName}\n`;
+                resultText += `発生時刻: ${yyyy}/${mm}/${dd} ${hh}:${min}頃\n\n`;
+
+                if (targetPoints.length > 0) {
+                    resultText += `各地の震度\n`;
+                    sortedScales.forEach(scale => {
+                        const scaleStr = getScaleLabel(scale);
+                        resultText += `震度${scaleStr}\n`;
+                        const prefsObj = groupedByScale[scale];
+                        Object.keys(prefsObj).forEach(pref => {
+                            const addrs = Array.from(prefsObj[pref]).join('　');
+                            resultText += `${pref}\n${addrs}\n\n`;
+                        });
+                    });
+                    resultText = resultText.trimEnd() + `\n`;
+                }
             }
 
             // --- その他 ---
@@ -769,3 +774,5 @@
     </script>
 </body>
 </html>
+
+
