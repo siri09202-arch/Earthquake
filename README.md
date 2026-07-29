@@ -17,9 +17,8 @@
 - Discord / X(Twitter) / LINE / Instagram / YouTube
 - NHKニュース風 / Yahoo!天気・災害風 / 気象庁風
 - ウェザーニュース風 / tenki.jp風
-- J-RISQ / Yahoo!防災速報風 / P2P地震情報風
-- 特務機関NERV風 / JQuake風 / EQMonitor風
-- EarthQuickly風 / DPI-Bot風
+- P2P地震情報風
+- 特務機関NERV風 / EQMonitor風
 - 簡易フォーマット / 詳細フォーマット
 
 **観測点バージョン（詳細な地点情報）**
@@ -156,7 +155,7 @@ npx http-server
 
 ## 💡 今後の予定
 
-- [ ] 長周期地震動に関する観測情報
+- [ ] 
 
 ## 🐛 既知の問題
 
