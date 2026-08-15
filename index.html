@@ -216,13 +216,13 @@
                 }
 
                 // 「各地の震度に関する情報 (DetailScale)」 かつ 震度情報(points)が存在し、最大震度3(30)以上のもののみ抽出 (46も対象に含む)
+                // または 「海外地震情報 (Foreign)」 を抽出
                 currentEarthquakes = allData.filter(eq => 
                     eq.issue && 
-                    eq.issue.type === 'DetailScale' && 
-                    eq.points && 
-                    eq.points.length > 0 &&
-                    eq.earthquake &&
-                    (eq.earthquake.maxScale >= 30 || eq.earthquake.maxScale === 46)
+                    (
+                        (eq.issue.type === 'DetailScale' && eq.points && eq.points.length > 0 && eq.earthquake && (eq.earthquake.maxScale >= 30 || eq.earthquake.maxScale === 46)) ||
+                        (eq.issue.type === 'Foreign')
+                    )
                 );
 
                 renderList();
@@ -253,7 +253,10 @@
             }
 
             currentEarthquakes.forEach((eq, index) => {
-                const maxScaleObj = scaleMap[eq.earthquake.maxScale] || { label: '不明', class: 'bg-gray-400' };
+                const isForeign = eq.issue && eq.issue.type === 'Foreign';
+                const maxScaleObj = isForeign 
+                    ? { label: '海外', class: 'bg-indigo-600' }
+                    : (scaleMap[eq.earthquake.maxScale] || { label: '不明', class: 'bg-gray-400' });
                 const timeParts = eq.earthquake.time.split(' '); // [YYYY/MM/DD, HH:mm:ss]
                 const dateText = timeParts[0];
                 const timeText = timeParts[1].substring(0, 5); // HH:mm
@@ -316,6 +319,8 @@
             const format = document.getElementById('format-select').value;
             const useRawPoints = document.getElementById('raw-points-check').checked;
             
+            const isForeign = eq.issue && eq.issue.type === 'Foreign';
+            
             // 1. 日時のフォーマット (YYYY/MM/DD HH:mm:ss -> YYYY年MM月DD日 HH:mm)
             const dateObj = new Date(eq.earthquake.time);
             const yyyy = dateObj.getFullYear();
@@ -325,13 +330,26 @@
             const min = String(dateObj.getMinutes()).padStart(2, '0');
             
             const maxScaleStr = getScaleLabel(eq.earthquake.maxScale);
-            const tsunamiText = tsunamiMap[eq.earthquake.domesticTsunami] || tsunamiMap["Unknown"];
             
-            // 簡易フォーマット用津波テキスト
-            let tsunamiShort = "心配なし";
-            if (eq.earthquake.domesticTsunami === "Warning") tsunamiShort = "警報等発表中";
-            else if (eq.earthquake.domesticTsunami === "NonDestructive") tsunamiShort = "海面変動あり(被害なし)";
-            else if (eq.earthquake.domesticTsunami === "Checking" || eq.earthquake.domesticTsunami === "Unknown") tsunamiShort = "調査中/不明";
+            // 津波メッセージの設定（国内・海外(PTWC連携)の出し分け）
+            let tsunamiText = "津波の影響は現在不明です。";
+            let tsunamiShort = "調査中/不明";
+            
+            if (isForeign) {
+                const ft = eq.earthquake.foreignTsunami || eq.earthquake.domesticTsunami;
+                if (ft === "None") { tsunamiText = "この地震による津波の心配はありません。"; tsunamiShort = "心配なし"; }
+                else if (ft === "Checking") { tsunamiText = "太平洋津波警報センター（PTWC）などが津波の有無を調査中です。"; tsunamiShort = "調査中"; }
+                else if (ft === "WarningNearby") { tsunamiText = "震源の近海で津波発生の可能性があります。"; tsunamiShort = "近海で津波可能性"; }
+                else if (ft === "Warning") { tsunamiText = "広域で津波発生の可能性があります（PTWC発表）。日本への影響は気象庁情報を確認してください。"; tsunamiShort = "広域津波可能性"; }
+                else if (ft === "NonDestructive") { tsunamiText = "若干の海面変動があるかもしれませんが、被害の心配はありません。"; tsunamiShort = "海面変動あり"; }
+            } else {
+                const dt = eq.earthquake.domesticTsunami;
+                if (dt === "None") { tsunamiText = "この地震による津波の心配はありません。"; tsunamiShort = "心配なし"; }
+                else if (dt === "NonDestructive") { tsunamiText = "若干の海面変動が予想されますが、被害の心配はありません。"; tsunamiShort = "海面変動あり(被害なし)"; }
+                else if (dt === "Warning") { tsunamiText = "津波警報等（大津波警報・津波警報・津波注意報）が発表されています。"; tsunamiShort = "警報等発表中"; }
+                else if (dt === "Checking" || dt === "Unknown") { tsunamiText = "津波の影響は現在調査中または不明です。"; tsunamiShort = "調査中/不明"; }
+                else if (dt === undefined) { tsunamiText = "（津波に関する情報はありません）"; tsunamiShort = "情報なし"; }
+            }
             
             const hypo = eq.earthquake.hypocenter;
             const hypoName = hypo.name || '不明';
@@ -345,7 +363,7 @@
             let lon = hypo.longitude !== -200 ? `東経${hypo.longitude}度` : '不明';
 
             // 2. 震度情報の集計（震度3:30 以上および未入電:46 を抽出）
-            const targetPoints = eq.points.filter(p => p.scale >= 30 || p.scale === 46);
+            const targetPoints = (eq.points || []).filter(p => p.scale >= 30 || p.scale === 46);
             
             // 市区町村以降を切り捨てるための関数
             function formatCityName(addr) {
@@ -394,86 +412,110 @@
             
             // --- 標準・SNS ---
             if (format === 'standard') {
-                resultText = `【地震情報】\n`;
-                resultText += `${yyyy}年${mm}月${dd}日 ${hh}:${min}ごろ、最大震度${maxScaleStr}の地震がありました。\n`;
+                resultText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
+                if (isForeign) {
+                    resultText += `${yyyy}年${mm}月${dd}日 ${hh}:${min}ごろ、海外で規模の大きな地震がありました。\n`;
+                } else {
+                    resultText += `${yyyy}年${mm}月${dd}日 ${hh}:${min}ごろ、最大震度${maxScaleStr}の地震がありました。\n`;
+                }
                 resultText += `${tsunamiText}\n\n`;
                 resultText += `震源地: ${hypoName}\n`;
                 resultText += `マグニチュード: ${magnitude}\n`;
                 resultText += `深さ: ${depth}\n`;
                 
-                if (targetPoints.length === 0) {
-                    resultText += `\n(震度3以上の観測データはありません)\n`;
-                } else {
-                    resultText += `\n■ 各地の震度（震度3以上）\n`;
-                    sortedScales.forEach(scale => {
-                        const scaleStr = getScaleLabel(scale);
-                        resultText += `［震度${scaleStr}］\n`;
-                        const prefsObj = groupedByScale[scale];
-                        Object.keys(prefsObj).forEach(pref => {
-                            const addrs = Array.from(prefsObj[pref]).join('、');
-                            resultText += `${pref}: ${addrs}\n`;
+                if (!isForeign) {
+                    if (targetPoints.length === 0) {
+                        resultText += `\n(震度3以上の観測データはありません)\n`;
+                    } else {
+                        resultText += `\n■ 各地の震度（震度3以上）\n`;
+                        sortedScales.forEach(scale => {
+                            const scaleStr = getScaleLabel(scale);
+                            resultText += `［震度${scaleStr}］\n`;
+                            const prefsObj = groupedByScale[scale];
+                            Object.keys(prefsObj).forEach(pref => {
+                                const addrs = Array.from(prefsObj[pref]).join('、');
+                                resultText += `${pref}: ${addrs}\n`;
+                            });
+                            resultText += `\n`;
                         });
-                        resultText += `\n`;
-                    });
-                    resultText = resultText.trimEnd() + `\n`;
+                        resultText = resultText.trimEnd() + `\n`;
+                    }
                 }
             }
             else if (format === 'discord') {
-                resultText = `# 地震情報\n`;
-                resultText += `${yyyy}年${mm}月${dd}日 ${hh}:${min}ごろ、最大震度${maxScaleStr}の地震がありました。\n`;
+                resultText = isForeign ? `# 海外地震情報\n` : `# 地震情報\n`;
+                if (isForeign) {
+                    resultText += `${yyyy}年${mm}月${dd}日 ${hh}:${min}ごろ、海外で規模の大きな地震がありました。\n`;
+                } else {
+                    resultText += `${yyyy}年${mm}月${dd}日 ${hh}:${min}ごろ、最大震度${maxScaleStr}の地震がありました。\n`;
+                }
                 resultText += `${tsunamiText}\n`;
                 resultText += `震源地: ${hypoName}\n`;
                 resultText += `マグニチュード: ${magnitude}\n`;
                 resultText += `深さ: ${depth}\n`;
                 resultText += `緯度/経度: ${lat}/${lon}\n`;
                 
-                if (targetPoints.length === 0) {
-                    resultText += `\n(震度3以上の観測データはありません)\n`;
-                } else {
-                    sortedScales.forEach(scale => {
-                        const scaleStr = getScaleLabel(scale);
-                        resultText += `\n［震度${scaleStr}］\n`;
-                        const prefsObj = groupedByScale[scale];
-                        Object.keys(prefsObj).forEach(pref => {
-                            const addrs = Array.from(prefsObj[pref]).join('　');
-                            resultText += `${pref}: ${addrs}\n`;
+                if (!isForeign) {
+                    if (targetPoints.length === 0) {
+                        resultText += `\n(震度3以上の観測データはありません)\n`;
+                    } else {
+                        sortedScales.forEach(scale => {
+                            const scaleStr = getScaleLabel(scale);
+                            resultText += `\n［震度${scaleStr}］\n`;
+                            const prefsObj = groupedByScale[scale];
+                            Object.keys(prefsObj).forEach(pref => {
+                                const addrs = Array.from(prefsObj[pref]).join('　');
+                                resultText += `${pref}: ${addrs}\n`;
+                            });
                         });
-                    });
+                    }
                 }
             } 
             else if (format === 'twitter') {
-                resultText = `【地震情報】\n`;
-                resultText += `${mm}/${dd} ${hh}:${min}ごろ、最大震度${maxScaleStr}の地震がありました。\n`;
+                resultText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
+                if (isForeign) {
+                    resultText += `${mm}/${dd} ${hh}:${min}ごろ、海外で規模の大きな地震がありました。\n`;
+                } else {
+                    resultText += `${mm}/${dd} ${hh}:${min}ごろ、最大震度${maxScaleStr}の地震がありました。\n`;
+                }
                 resultText += `震源: ${hypoName} (M${magnitude} / 深さ${depth})\n`;
                 
-                if (eq.earthquake.domesticTsunami === "None") {
-                    resultText += `津波の心配はありません。\n`;
+                if (isForeign) {
+                    const ft = eq.earthquake.foreignTsunami || eq.earthquake.domesticTsunami;
+                    if (ft === "None") resultText += `津波の心配はありません。\n`;
+                    else resultText += `⚠️${tsunamiText}\n`;
                 } else {
-                    resultText += `⚠️${tsunamiText}\n`;
+                    if (eq.earthquake.domesticTsunami === "None") {
+                        resultText += `津波の心配はありません。\n`;
+                    } else {
+                        resultText += `⚠️${tsunamiText}\n`;
+                    }
                 }
                 
-                const maxScaleVal = eq.earthquake.maxScale;
-                if (maxScaleVal >= 30 || maxScaleVal === 46) {
-                    const maxPrefs = Array.from(new Set(eq.points.filter(p => p.scale === maxScaleVal).map(p => p.pref)));
-                    if (maxPrefs.length > 0) {
-                        resultText += `\n■ 最大震度${maxScaleStr}の地域\n${maxPrefs.join('、')}\n`;
+                if (!isForeign) {
+                    const maxScaleVal = eq.earthquake.maxScale;
+                    if (maxScaleVal >= 30 || maxScaleVal === 46) {
+                        const maxPrefs = Array.from(new Set((eq.points || []).filter(p => p.scale === maxScaleVal).map(p => p.pref)));
+                        if (maxPrefs.length > 0) {
+                            resultText += `\n■ 最大震度${maxScaleStr}の地域\n${maxPrefs.join('、')}\n`;
+                        }
                     }
                 }
                 resultText += `\n#地震 #地震情報\n`;
             }
             else if (format === 'line') {
-                resultText = `【地震情報】\n`;
+                resultText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
                 resultText += `発生: ${yyyy}/${mm}/${dd} ${hh}:${min}頃\n`;
                 resultText += `震源: ${hypoName}\n`;
-                resultText += `最大震度: ${maxScaleStr}\n`;
+                if (!isForeign) resultText += `最大震度: ${maxScaleStr}\n`;
                 resultText += `${tsunamiText}\n\n`;
                 resultText += `#地震 #緊急情報\n`;
             }
             else if (format === 'insta') {
-                resultText = `【地震情報】\n`;
+                resultText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
                 resultText += `${mm}月${dd}日 ${hh}:${min}頃、地震が発生しました。\n\n`;
                 resultText += `📍震源: ${hypoName}\n`;
-                resultText += `⚠️最大震度: ${maxScaleStr}\n`;
+                if (!isForeign) resultText += `⚠️最大震度: ${maxScaleStr}\n`;
                 resultText += `🌊津波: ${tsunamiShort}\n\n`;
                 resultText += `詳細は公式情報をご確認ください。\n\n`;
                 resultText += `#地震 #防災 #速報\n`;
@@ -487,19 +529,23 @@
                 const ampmHh = isAm ? hhNum : (hhNum === 12 ? 12 : hhNum - 12);
                 const magZenkaku = magnitude.toString().replace('.', '．');
 
-                resultText = `【地震情報】\n`;
+                resultText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
                 resultText += `${ampmStr}${ampmHh}時${min}分ごろ地震がありました\n`;
                 resultText += `震源は${hypoName}\n`;
                 resultText += `深さ${depth.replace('km', 'キロ')}　マグニチュード${magZenkaku}\n`;
                 resultText += `緯度/経度: ${lat}/${lon}\n`;
                 
                 let nhkTsunami = "この地震による津波の心配はありません";
-                if (eq.earthquake.domesticTsunami === "Warning") nhkTsunami = "津波警報等が発表されています";
-                else if (eq.earthquake.domesticTsunami === "NonDestructive") nhkTsunami = "若干の海面変動が予想されますが、被害の心配はありません";
-                else if (eq.earthquake.domesticTsunami !== "None") nhkTsunami = "津波の影響は現在調査中です";
+                if (isForeign) {
+                    nhkTsunami = tsunamiText;
+                } else {
+                    if (eq.earthquake.domesticTsunami === "Warning") nhkTsunami = "津波警報等が発表されています";
+                    else if (eq.earthquake.domesticTsunami === "NonDestructive") nhkTsunami = "若干の海面変動が予想されますが、被害の心配はありません";
+                    else if (eq.earthquake.domesticTsunami !== "None") nhkTsunami = "津波の影響は現在調査中です";
+                }
                 resultText += `${nhkTsunami}\n\n`;
 
-                if (targetPoints.length > 0) {
+                if (!isForeign && targetPoints.length > 0) {
                     sortedScales.forEach(scale => {
                         const scaleStr = getScaleLabel(scale);
                         resultText += `■震度${scaleStr}■ `;
@@ -514,7 +560,7 @@
                 }
             }
             else if (format === 'yahoo_weather') {
-                resultText = `【地震情報】\n`;
+                resultText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
                 resultText += `発生時刻: ${yyyy}年${mm}月${dd}日 ${hh}:${min}\n`;
                 resultText += `震源地: ${hypoName}\n`;
                 resultText += `マグニチュード: ${magnitude}\n`;
@@ -522,11 +568,15 @@
                 resultText += `緯度/経度: ${lat}/${lon}\n`;
                 
                 let yTsunami = "この地震による津波の心配はありません。";
-                if (eq.earthquake.domesticTsunami === "Warning") yTsunami = "津波警報等が発表されています。";
-                else if (eq.earthquake.domesticTsunami === "NonDestructive") yTsunami = "若干の海面変動が予想されますが、被害の心配はありません。";
+                if (isForeign) {
+                    yTsunami = tsunamiText;
+                } else {
+                    if (eq.earthquake.domesticTsunami === "Warning") yTsunami = "津波警報等が発表されています。";
+                    else if (eq.earthquake.domesticTsunami === "NonDestructive") yTsunami = "若干の海面変動が予想されますが、被害の心配はありません。";
+                }
                 resultText += `${yTsunami}\n\n`;
 
-                if (targetPoints.length > 0) {
+                if (!isForeign && targetPoints.length > 0) {
                     sortedScales.forEach(scale => {
                         const scaleStr = getScaleLabel(scale);
                         resultText += `震度${scaleStr}\n`;
@@ -541,15 +591,16 @@
                 }
             }
             else if (format === 'jma') {
-                resultText = `【地震情報】\n`;
+                resultText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
                 resultText += `地震検知日時: ${yyyy}/${mm}/${dd} ${hh}:${min}\n`;
                 resultText += `緯度: ${lat}\n`;
                 resultText += `経度: ${lon}\n`;
                 resultText += `マグニチュード: ${magnitude}\n`;
                 resultText += `震源の深さ: ${depth}\n`;
                 resultText += `震央地名: ${hypoName}\n\n`;
+                if (isForeign) resultText += `${tsunamiText}\n\n`;
 
-                if (targetPoints.length > 0) {
+                if (!isForeign && targetPoints.length > 0) {
                     resultText += `震度3以上が観測された地域\n\n`;
                     prefOrder.forEach(pref => {
                         resultText += `${pref}\n`;
@@ -565,14 +616,14 @@
                 }
             }
             else if (format === 'weathernews') {
-                resultText = `【地震情報】\n`;
+                resultText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
                 resultText += `${mm}月${dd}日 ${hh}:${min}\n`;
-                resultText += `最大震度${maxScaleStr}\n`;
+                if (!isForeign) resultText += `最大震度${maxScaleStr}\n`;
                 resultText += `震源地: ${hypoName}\n`;
                 resultText += `マグニチュード: ${magnitude}\n`;
                 resultText += `震源の深さ: 約${depth}\n\n`;
 
-                if (targetPoints.length > 0) {
+                if (!isForeign && targetPoints.length > 0) {
                     resultText += `各地の震度\n`;
                     sortedScales.forEach(scale => {
                         const scaleStr = getScaleLabel(scale);
@@ -587,21 +638,25 @@
                 }
             }
             else if (format === 'tenkijp') {
-                resultText = `【地震情報】\n`;
+                resultText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
                 let tTsunami = "この地震による津波の心配はありません。";
-                if (eq.earthquake.domesticTsunami === "Warning") tTsunami = "津波警報等が発表されています。";
-                else if (eq.earthquake.domesticTsunami === "NonDestructive") tTsunami = "若干の海面変動が予想されますが、被害の心配はありません。";
+                if (isForeign) {
+                    tTsunami = tsunamiText;
+                } else {
+                    if (eq.earthquake.domesticTsunami === "Warning") tTsunami = "津波警報等が発表されています。";
+                    else if (eq.earthquake.domesticTsunami === "NonDestructive") tTsunami = "若干の海面変動が予想されますが、被害の心配はありません。";
+                }
                 
                 resultText += `${tTsunami}\n`;
                 resultText += `発生時刻${yyyy}年${mm}月${dd}日 ${hh}時${min}分頃\n`;
                 resultText += `震源地: ${hypoName}\n`;
-                resultText += `最大震度: 震度${maxScaleStr}\n`;
+                if (!isForeign) resultText += `最大震度: 震度${maxScaleStr}\n`;
                 resultText += `緯度: ${lat}\n`;
                 resultText += `経度: ${lon}\n`;
                 resultText += `マグニチュード: M${magnitude}\n`;
                 resultText += `深さ: ${depth}\n\n`;
 
-                if (targetPoints.length > 0) {
+                if (!isForeign && targetPoints.length > 0) {
                     sortedScales.forEach(scale => {
                         const scaleStr = getScaleLabel(scale);
                         resultText += `● 震度${scaleStr}\n`;
@@ -618,17 +673,21 @@
             
             // --- 防災アプリ・Bot風 ---
             else if (format === 'p2p') {
-                resultText = `【地震情報】\n`;
+                resultText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
                 resultText += `日時　${mm}月${dd}日${hh}時${min}分頃\n`;
                 resultText += `震源　${hypoName} (深さ${depth}) M${magnitude}\n`;
                 
                 let pTsunami = "津波の心配なし";
-                if (eq.earthquake.domesticTsunami === "Warning") pTsunami = "津波予報 発表中";
-                else if (eq.earthquake.domesticTsunami === "NonDestructive") pTsunami = "海面変動あり(被害なし)";
-                else if (eq.earthquake.domesticTsunami !== "None") pTsunami = "津波の影響は調査中";
+                if (isForeign) {
+                    pTsunami = tsunamiShort;
+                } else {
+                    if (eq.earthquake.domesticTsunami === "Warning") pTsunami = "津波予報 発表中";
+                    else if (eq.earthquake.domesticTsunami === "NonDestructive") pTsunami = "海面変動あり(被害なし)";
+                    else if (eq.earthquake.domesticTsunami !== "None") pTsunami = "津波の影響は調査中";
+                }
                 resultText += `津波　${pTsunami}\n\n`;
 
-                if (targetPoints.length > 0) {
+                if (!isForeign && targetPoints.length > 0) {
                     resultText += `各地の震度\n`;
                     prefOrder.forEach(pref => {
                         resultText += `${pref}\n`;
@@ -642,23 +701,28 @@
                 }
             }
             else if (format === 'nerv') {
-                resultText = `【地震情報】\n`;
-                resultText += `最大震度${maxScaleStr}　マグニチュード${magnitude}\n`;
+                resultText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
+                if (!isForeign) resultText += `最大震度${maxScaleStr}　マグニチュード${magnitude}\n`;
+                else resultText += `マグニチュード${magnitude}\n`;
                 resultText += `発生時刻　${dd}日 ${hh}:${min}頃\n`;
                 resultText += `震源地　${hypoName}\n`;
                 resultText += `深さ　約${depth}\n`;
                 
                 let nervTsunami = "この地震による津波の心配はありません。";
-                if (eq.earthquake.domesticTsunami === "Warning") {
-                    nervTsunami = "津波警報等（大津波警報・津波警報あるいは津波注意報）を発表中です。"; 
-                } else if (eq.earthquake.domesticTsunami === "NonDestructive") {
-                    nervTsunami = "若干の海面変動が予想されますが、被害の心配はありません。";
-                } else if (eq.earthquake.domesticTsunami !== "None") {
-                    nervTsunami = "津波の影響は現在調査中です。";
+                if (isForeign) {
+                    nervTsunami = tsunamiText;
+                } else {
+                    if (eq.earthquake.domesticTsunami === "Warning") {
+                        nervTsunami = "津波警報等（大津波警報・津波警報あるいは津波注意報）を発表中です。"; 
+                    } else if (eq.earthquake.domesticTsunami === "NonDestructive") {
+                        nervTsunami = "若干の海面変動が予想されますが、被害の心配はありません。";
+                    } else if (eq.earthquake.domesticTsunami !== "None") {
+                        nervTsunami = "津波の影響は現在調査中です。";
+                    }
                 }
                 resultText += `${nervTsunami}\n\n`;
 
-                if (targetPoints.length > 0) {
+                if (!isForeign && targetPoints.length > 0) {
                     sortedScales.forEach(scale => {
                         const scaleStr = getScaleLabel(scale);
                         resultText += `震度${scaleStr}\n`;
@@ -672,14 +736,14 @@
                 }
             }
             else if (format === 'eqmonitor') {
-                resultText = `【地震情報】\n`;
-                resultText += `最大震度${maxScaleStr}\n`;
+                resultText = isForeign ? `【海外地震情報】\n` : `【地震情報】\n`;
+                if (!isForeign) resultText += `最大震度${maxScaleStr}\n`;
                 resultText += `M${magnitude}\n`;
                 resultText += `深さ${depth}\n`;
                 resultText += `震源地 ${hypoName}\n`;
                 resultText += `発生時刻: ${yyyy}/${mm}/${dd} ${hh}:${min}頃\n\n`;
 
-                if (targetPoints.length > 0) {
+                if (!isForeign && targetPoints.length > 0) {
                     resultText += `各地の震度\n`;
                     sortedScales.forEach(scale => {
                         const scaleStr = getScaleLabel(scale);
@@ -696,17 +760,17 @@
 
             // --- その他 ---
             else if (format === 'simple') {
-                resultText = `【地震発生】${mm}/${dd} ${hh}:${min}\n`;
-                resultText += `最大震度: ${maxScaleStr}\n`;
+                resultText = isForeign ? `【海外地震発生】${mm}/${dd} ${hh}:${min}\n` : `【地震発生】${mm}/${dd} ${hh}:${min}\n`;
+                if (!isForeign) resultText += `最大震度: ${maxScaleStr}\n`;
                 resultText += `震源地: ${hypoName} (M${magnitude})\n`;
                 resultText += `津波: ${tsunamiShort}\n`;
             }
             else if (format === 'detail') {
                 resultText = `＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝\n`;
-                resultText += `　　　　地 震 情 報\n`;
+                resultText += isForeign ? `　　　海外地震情報\n` : `　　　　地 震 情 報\n`;
                 resultText += `＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝\n`;
                 resultText += `発生時刻: ${yyyy}年${mm}月${dd}日 ${hh}:${min}\n`;
-                resultText += `最大震度: 震度${maxScaleStr}\n`;
+                if (!isForeign) resultText += `最大震度: 震度${maxScaleStr}\n`;
                 resultText += `震源地　: ${hypoName}\n`;
                 resultText += `規模　　: マグニチュード ${magnitude}\n`;
                 resultText += `深さ　　: ${depth}\n`;
@@ -774,5 +838,3 @@
     </script>
 </body>
 </html>
-
-
